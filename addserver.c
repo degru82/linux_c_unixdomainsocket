@@ -4,51 +4,102 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <netinet/in.h>
+#include <netdb.h>
 
-#define NAME "/tmp/test"
+// #define NAME "/tmp/test"
+
+
+void doprocessing (int sockfd);
 
 int main (int argc, char *argv[]) {
-    int sock, msgsock, rval;
-    int a=0, b=0;
-    struct sockaddr_un server;
-    char buf[1024] = {0};
-    char ret[1024] = {0};
+    int sockfd, newsockfd, portno;
+    unsigned int clilen;
+    // struct sockaddr_un server;
+    struct sockaddr_in serv_addr, cli_addr;
+    int n, pid;
 
-    sock = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (sock < 0) {
+    // sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
         perror ("opening stream socket");
         return 1;
     }
 
-    server.sun_family = AF_UNIX;
-    strcpy (server.sun_path, NAME);
-    if (bind (sock, (struct sockaddr *) &server, sizeof(struct sockaddr_un))) {
+    printf("SOCKET CREATED FOR SERVER\n");
+
+    bzero((char*) &serv_addr, sizeof(serv_addr));
+    portno = 5001;
+
+    // serv_addr.sun_family = AF_UNIX;
+    // strcpy (serv_addr.sun_path, NAME);
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port = htons(portno);
+
+    // if (bind (sockfd, (struct sockaddr *) &serv_addr, sizeof(struct sockaddr_un))) {
+    if (bind (sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         perror ("binding stream socket");
         return 1;
     }
 
-    printf ("socket has name %s\n", server.sun_path);
-    listen (sock, 5);
-    while (1) {
-        msgsock = accept (sock, 0, 0);
-        if (msgsock == -1) 
-            perror ("accept");
-        else do {
-            if ((rval = read (msgsock, buf, 1024)) < 0) {
-                perror ("reading stream messages");
-            } else if (rval == 0) {
-                //printf ("ending connection\n");
-            } else {
-                //printf ("->%s\n", buf);
-                sscanf (buf, "%d %d", &a, &b);
+    printf("PORT HAS BEEN BINDED TO LISTEN\n");
 
-                sprintf (ret, "%d", a + b);
-                //printf (ret, "%d", a + b);
-                write (msgsock, ret, sizeof(ret));
-            }
-        } while (rval > 0);
-        close (msgsock);
+    listen (sockfd, 5);
+    clilen = sizeof(cli_addr);
+
+    printf("LISTENING FOR 5 CLIENTS...\n");
+
+    while (1) {
+        // newsockfd = accept (sockfd, 0, 0);
+        newsockfd = accept (sockfd, (struct sockaddr *)&cli_addr, &clilen);
+
+        printf ("CONNECTION FROM CLIENT HAS BEEN ACCEPTED...\n");
+
+        if (newsockfd == -1) {
+            perror ("accept");
+            return 1;
+        } 
+        
+        pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            return 1;
+        }
+
+        if (pid == 0) {
+            // Client Process
+            printf ("CHILD PROCESS HAS BEEN CREATED...\n");
+
+            close (sockfd);
+            doprocessing (newsockfd);
+            return 0;
+        } else {
+            // Parent Process
+            close (newsockfd);
+        }
+
     }
-    close (sock);
-    unlink (NAME);
+    close (sockfd);
+    // unlink (NAME);
+}
+
+void doprocessing (int sockfd) {
+    int n;
+    int augend, addend; // AUGEND + ADDEND = SUM
+    char in_buffer [256];
+    char out_buffer [256];
+
+    bzero (in_buffer, 256);
+    bzero (out_buffer, 256);
+
+    n = read (sockfd, in_buffer, 255);
+    if (n < 0) {
+        perror ("Reading from Socket");
+        return;
+    }
+    sscanf (in_buffer, "%d %d", &augend, &addend);
+    sprintf (out_buffer, "%d", augend + addend);
+
+    write(sockfd, out_buffer, sizeof(out_buffer));
 }
